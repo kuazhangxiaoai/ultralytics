@@ -302,7 +302,7 @@ class Model(nn.Module):
             validator (BaseValidator): Customized validator.
             **kwargs : Any other args accepted by the validators. To see all args check 'configuration' section in docs
         """
-        custom = {"rect": True}  # method defaults
+        custom = {"rect": False}  # method defaults
         args = {**self.overrides, **custom, **kwargs, "mode": "val"}  # highest priority args on the right
 
         validator = (validator or self._smart_load("validator"))(args=args, _callbacks=self.callbacks)

@@ -42,7 +42,8 @@ PIN_MEMORY = str(os.getenv("PIN_MEMORY", True)).lower() == "true"  # global pin_
 
 def img2label_paths(img_paths):
     """Define label paths as a function of image paths."""
-    sa, sb = f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}"  # /images/, /labels/ substrings
+    #sa, sb = f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}"  # /images/, /labels/ substrings
+    sa, sb = f"{os.sep}images{os.sep}", f"{os.sep}labelTxt{os.sep}"
     return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt" for x in img_paths]
 
 
@@ -94,7 +95,7 @@ def verify_image(args):
 
 def verify_image_label(args):
     """Verify one image-label pair."""
-    im_file, lb_file, prefix, keypoint, num_cls, nkpt, ndim = args
+    im_file, lb_file,names, prefix, keypoint, num_cls, nkpt, ndim = args
     # Number (missing, found, empty, corrupt), message, segments, keypoints
     nm, nf, ne, nc, msg, segments, keypoints = 0, 0, 0, 0, "", [], None
     try:
@@ -117,7 +118,19 @@ def verify_image_label(args):
             nf = 1  # label found
             with open(lb_file) as f:
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
-                if any(len(x) > 6 for x in lb) and (not keypoint):  # is segment
+                if any(len(x) >= 9 for x in lb) and (not keypoint):  # is segment
+                    labels = []
+                    for x in lb:
+                        cls = get_dict_key_by_value(names, x[8])
+                        ps = x[:8]
+                        for i in range(8):
+                            ps[i] = float(ps[i]) / shape[1] if i % 2 == 0 else float(ps[i]) / shape[0]
+
+                        poly = ps
+                        difficult = x[9]
+                        labels.append([cls, *poly])
+                    lb = np.array(labels)
+                else:
                     classes = np.array([x[0] for x in lb], dtype=np.float32)
                     segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
@@ -128,7 +141,7 @@ def verify_image_label(args):
                     assert lb.shape[1] == (5 + nkpt * ndim), f"labels require {(5 + nkpt * ndim)} columns each"
                     points = lb[:, 5:].reshape(-1, ndim)[:, :2]
                 else:
-                    assert lb.shape[1] == 5, f"labels require 5 columns, {lb.shape[1]} columns detected"
+                    assert lb.shape[1] == 5 or 9, f"labels require 5 or 9 columns, {lb.shape[1]} columns detected"
                     points = lb[:, 1:]
                 assert points.max() <= 1, f"non-normalized or out of bounds coordinates {points[points > 1]}"
                 assert lb.min() >= 0, f"negative label values {lb[lb < 0]}"
@@ -156,7 +169,7 @@ def verify_image_label(args):
             if ndim == 2:
                 kpt_mask = np.where((keypoints[..., 0] < 0) | (keypoints[..., 1] < 0), 0.0, 1.0).astype(np.float32)
                 keypoints = np.concatenate([keypoints, kpt_mask[..., None]], axis=-1)  # (nl, nkpt, 3)
-        lb = lb[:, :5]
+        #lb = lb[:, :5]
         return im_file, lb, shape, segments, keypoints, nm, nf, ne, nc, msg
     except Exception as e:
         nc = 1
@@ -645,3 +658,10 @@ def autosplit(path=DATASETS_DIR / "coco8/images", weights=(0.9, 0.1, 0.0), annot
         if not annotated_only or Path(img2label_paths([str(img)])[0]).exists():  # check label
             with open(path.parent / txt[i], "a") as f:
                 f.write(f"./{img.relative_to(path.parent).as_posix()}" + "\n")  # add image to txt file
+
+def get_dict_key_by_value(d, v):
+    keys = list(d.keys())
+    values = list(d.values())
+    idx = values.index(v)
+    key = keys[idx]
+    return key

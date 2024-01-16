@@ -6,8 +6,9 @@ from numbers import Number
 from typing import List
 
 import numpy as np
-
-from .ops import ltwh2xywh, ltwh2xyxy, xywh2ltwh, xywh2xyxy, xyxy2ltwh, xyxy2xywh
+from shapely.geometry import Polygon
+from .ops import ltwh2xywh, ltwh2xyxy, xywh2ltwh, xywh2xyxy, xyxy2ltwh, xyxy2xywh, xyxyxyxy2xywhr, xywhr2xyxyxyxy, \
+    poly2rbox
 
 
 def _ntuple(n):
@@ -26,7 +27,7 @@ to_4tuple = _ntuple(4)
 # `xyxy` means left top and right bottom
 # `xywh` means center x, center y and width, height(YOLO format)
 # `ltwh` means left top and width, height(COCO format)
-_formats = ["xyxy", "xywh", "ltwh"]
+_formats = ["xyxy", "xywh", "ltwh", "xyxyxyxy", "xywhr"]
 
 __all__ = ("Bboxes",)  # tuple or list
 
@@ -51,7 +52,7 @@ class Bboxes:
         assert format in _formats, f"Invalid bounding box format: {format}, format must be one of {_formats}"
         bboxes = bboxes[None, :] if bboxes.ndim == 1 else bboxes
         assert bboxes.ndim == 2
-        assert bboxes.shape[1] == 4
+        #assert bboxes.shape[1] == 4
         self.bboxes = bboxes
         self.format = format
         # self.normalized = normalized
@@ -173,6 +174,125 @@ class Bboxes:
         return Bboxes(b)
 
 
+class Rboxes(Bboxes):
+    def __init__(self, bboxes, format='xyxyxyxy'):
+        super().__init__(bboxes, format)
+
+    def areas(self):
+        """Return box areas."""
+        if self.format == "xywhr":
+            area = [self.bboxes[i][2] * self.bboxes[i][3] for i in range(len(self.bboxes))]
+        else:
+            area = [Polygon(self.bboxes[i].reshape(-1,2)).area for i in range(len(self.bboxes))]
+        return area
+
+    def convert(self, format):
+        """Converts bounding box format from one type to another."""
+        assert format in _formats, f"Invalid bounding box format: {format}, format must be one of {_formats}"
+        if self.format == format:
+            return
+        elif self.format == "xyxyxyxy" and format == "xywhr":
+            func = poly2rbox
+        elif self.format == "xywhr" and format == "xyxyxyxy":
+            func = xywhr2xyxyxyxy
+
+        self.bboxes = func(self.bboxes)
+        self.format = format
+
+    def mul(self, scale):
+        """
+        Args:
+            scale (tuple | list | int): the scale for four coords.
+        """
+        if isinstance(scale, Number):
+            scale = to_4tuple(scale)
+        assert isinstance(scale, (tuple, list))
+        assert len(scale) == 4
+        if self.format == "xyxyxyxy":
+            self.bboxes[:, 0] *= scale[0]
+            self.bboxes[:, 1] *= scale[1]
+            self.bboxes[:, 2] *= scale[2]
+            self.bboxes[:, 3] *= scale[3]
+            self.bboxes[:, 4] *= scale[0]
+            self.bboxes[:, 5] *= scale[1]
+            self.bboxes[:, 6] *= scale[2]
+            self.bboxes[:, 7] *= scale[3]
+        else:
+            self.bboxes[:, 0] *= scale[0]
+            self.bboxes[:, 1] *= scale[1]
+            self.bboxes[:, 2] *= scale[2]
+            self.bboxes[:, 3] *= scale[3]
+
+    def add(self, offset):
+        """
+        Args:
+            offset (tuple | list | int): the offset for four coords.
+        """
+        if isinstance(offset, Number):
+            offset = to_4tuple(offset)
+        assert isinstance(offset, (tuple, list))
+        assert len(offset) == 4
+        if self.format == "xyxyxyxy":
+            self.bboxes[:, 0] += offset[0]
+            self.bboxes[:, 1] += offset[1]
+            self.bboxes[:, 2] += offset[2]
+            self.bboxes[:, 3] += offset[3]
+            self.bboxes[:, 4] += offset[0]
+            self.bboxes[:, 5] += offset[1]
+            self.bboxes[:, 6] += offset[2]
+            self.bboxes[:, 7] += offset[3]
+        else:
+            self.bboxes[:, 0] += offset[0]
+            self.bboxes[:, 1] += offset[1]
+    def __getitem__(self, index) -> "Rboxes":
+        """
+        Retrieve a specific bounding box or a set of bounding boxes using indexing.
+
+        Args:
+            index (int, slice, or np.ndarray): The index, slice, or boolean array to select
+                                               the desired bounding boxes.
+
+        Returns:
+            Bboxes: A new Bboxes object containing the selected bounding boxes.
+
+        Raises:
+            AssertionError: If the indexed bounding boxes do not form a 2-dimensional matrix.
+
+        Note:
+            When using boolean indexing, make sure to provide a boolean array with the same
+            length as the number of bounding boxes.
+        """
+        if isinstance(index, int):
+            return Rboxes(self.bboxes[index].view(1, -1))
+        b = self.bboxes[index]
+        assert b.ndim == 2, f"Indexing on Bboxes with {index} failed to return a matrix!"
+        return Rboxes(b)
+
+    @classmethod
+    def concatenate(cls, boxes_list: List["Rboxes"], axis=0) -> "Rboxes":
+        """
+        Concatenate a list of Bboxes objects into a single Bboxes object.
+
+        Args:
+            boxes_list (List[Bboxes]): A list of Bboxes objects to concatenate.
+            axis (int, optional): The axis along which to concatenate the bounding boxes.
+                                   Defaults to 0.
+
+        Returns:
+            Bboxes: A new Bboxes object containing the concatenated bounding boxes.
+
+        Note:
+            The input should be a list or tuple of Bboxes objects.
+        """
+        assert isinstance(boxes_list, (list, tuple))
+        if not boxes_list:
+            return cls(np.empty(0))
+        assert all(isinstance(box, Rboxes) for box in boxes_list)
+
+        if len(boxes_list) == 1:
+            return boxes_list[0]
+        return cls(np.concatenate([b.bboxes for b in boxes_list], axis=axis))
+
 class Instances:
     """
     Container for bounding boxes, segments, and keypoints of detected objects in an image.
@@ -205,21 +325,23 @@ class Instances:
         This class does not perform input validation, and it assumes the inputs are well-formed.
     """
 
-    def __init__(self, bboxes, segments=None, keypoints=None, bbox_format="xywh", normalized=True) -> None:
+    def __init__(self, bboxes, use_obb=False, segments=None, keypoints=None, bbox_format="xywh", normalized=True) -> None:
         """
         Args:
             bboxes (ndarray): bboxes with shape [N, 4].
             segments (list | ndarray): segments.
             keypoints (ndarray): keypoints(x, y, visible) with shape [N, 17, 3].
         """
-        self._bboxes = Bboxes(bboxes=bboxes, format=bbox_format)
+        self._bboxes = Bboxes(bboxes=bboxes, format=bbox_format) if not use_obb else Rboxes(bboxes=bboxes, format=bbox_format)
         self.keypoints = keypoints
         self.normalized = normalized
         self.segments = segments
+        self.is_obb = use_obb
 
     def convert_bbox(self, format):
         """Convert bounding box format."""
         self._bboxes.convert(format=format)
+
 
     @property
     def bbox_areas(self):

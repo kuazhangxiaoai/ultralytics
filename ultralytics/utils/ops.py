@@ -14,6 +14,17 @@ import torchvision
 from ultralytics.utils import LOGGER
 from ultralytics.utils.metrics import batch_probiou
 
+pi = 3.141592
+def regular_theta(theta, mode='180', start=-pi/2):
+    """
+    limit theta ∈ [-pi/2, pi/2)
+    """
+    assert mode in ['360', '180']
+    cycle = 2 * pi if mode == '360' else pi
+
+    theta = theta - start
+    theta = theta % cycle
+    return theta + start
 
 class Profile(contextlib.ContextDecorator):
     """
@@ -569,6 +580,43 @@ def xywhr2xyxyxyxy(center):
     pt4 = ctr - vec1 + vec2
     return np.stack([pt1, pt2, pt3, pt4], axis=-2) if is_numpy else torch.stack([pt1, pt2, pt3, pt4], dim=-2)
 
+def poly2rbox(polys, use_pi=True):
+    """
+    Trans poly format to rbox format.
+    Args:
+        polys (array): (num_gts, [x1 y1 x2 y2 x3 y3 x4 y4])
+        num_cls_thata (int): [1], theta class num
+        radius (float32): [1], window radius for Circular Smooth Label
+        use_pi (bool): True θ∈[-pi/2, pi/2) ， False θ∈[0, 180)
+
+    Returns:
+        use_gaussian True:
+            rboxes (array):
+            csl_labels (array): (num_gts, num_cls_thata)
+        elif
+            rboxes (array): (num_gts, [cx cy l s θ])
+    """
+    assert polys.shape[-1] == 8
+    rboxes = []
+    for poly in polys:
+        poly = np.float32(poly.reshape(4, 2))
+        (x, y), (w, h), angle = cv2.minAreaRect(poly) # θ ∈ [0， 90]
+        angle = -angle # θ ∈ [-90， 0]
+        theta = angle / 180 * np.pi # 转为pi制
+
+        # trans opencv format to longedge format θ ∈ [-pi/2， pi/2]
+        if w != max(w, h):
+            w, h = h, w
+            theta += np.pi/2
+        theta = -1 * regular_theta(theta) # limit theta ∈ [-pi/2, pi/2)
+        angle = (theta * 180 / np.pi) + 90 # θ ∈ [0， 180)
+
+        if not use_pi: # 采用angle弧度制 θ ∈ [0， 180)
+            rboxes.append([x, y, w, h, angle])
+        else: # 采用pi制
+            rboxes.append([x, y, w, h, theta])
+
+    return np.array(rboxes)
 
 def ltwh2xyxy(x):
     """

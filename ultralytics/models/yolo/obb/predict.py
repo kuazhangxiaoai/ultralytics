@@ -50,3 +50,19 @@ class OBBPredictor(DetectionPredictor):
             obb = torch.cat([pred[:, :4], pred[:, -1:], pred[:, 4:6]], dim=-1)
             results.append(Results(orig_img, path=img_path, names=self.model.names, obb=obb))
         return results
+
+def predict(cfg=DEFAULT_CFG, use_python=False):
+    model = cfg.model or 'yolo8n.pt'
+    source = cfg.source
+    args = dict(model=model, source=source)
+    if use_python:
+        from ultralytics import YOLO
+        YOLO(model)(**args)
+    else:
+        predictor = OBBPredictor(overrides=args)
+        predictor.predict_cli()
+
+if __name__ == '__main__':
+    predict()
+
+

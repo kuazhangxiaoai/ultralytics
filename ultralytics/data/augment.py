@@ -744,7 +744,10 @@ class LetterBox:
 
     def _update_labels(self, labels, ratio, padw, padh):
         """Update labels."""
-        labels["instances"].convert_bbox(format="xyxy")
+        if labels["instances"].is_obb:
+            labels["instances"].convert_bbox(format="xyxyxyxy")
+        else:
+            labels["instances"].convert_bbox(format="xyxy")
         labels["instances"].denormalize(*labels["img"].shape[:2][::-1])
         labels["instances"].scale(*ratio)
         labels["instances"].add_padding(padw, padh)
@@ -936,9 +939,13 @@ class Format:
         labels["bboxes"] = torch.from_numpy(instances.bboxes) if nl else torch.zeros((nl, 4))
         if self.return_keypoint:
             labels["keypoints"] = torch.from_numpy(instances.keypoints)
-        if self.return_obb:
+        if self.return_obb and instances.bboxes.shape[1] == 8:
             labels["bboxes"] = (
-                xyxyxyxy2xywhr(torch.from_numpy(instances.segments)) if len(instances.segments) else torch.zeros((0, 5))
+                xyxyxyxy2xywhr(torch.from_numpy(instances.bboxes)) if len(instances.bboxes) else torch.zeros((0, 5))
+            )
+        elif self.return_obb and instances.bboxes.shape[1] == 5:
+            labels["bboxes"] = (
+                torch.from_numpy(instances.bboxes) if len(instances.bboxes) else torch.zeros((0, 5))
             )
         # Then we can use collate_fn
         if self.batch_idx:

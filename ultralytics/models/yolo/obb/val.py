@@ -8,6 +8,7 @@ from ultralytics.models.yolo.detect import DetectionValidator
 from ultralytics.utils import LOGGER, ops
 from ultralytics.utils.metrics import OBBMetrics, batch_probiou
 from ultralytics.utils.plotting import output_to_rotated_target, plot_images
+from ultralytics.utils import DEFAULT_CFG, ops
 
 
 class OBBValidator(DetectionValidator):
@@ -38,7 +39,7 @@ class OBBValidator(DetectionValidator):
 
     def postprocess(self, preds):
         """Apply Non-maximum suppression to prediction outputs."""
-        return ops.non_max_suppression(
+        p = ops.non_max_suppression(
             preds,
             self.args.conf,
             self.args.iou,
@@ -49,6 +50,7 @@ class OBBValidator(DetectionValidator):
             max_det=self.args.max_det,
             rotated=True,
         )
+        return p
 
     def _process_batch(self, detections, gt_bboxes, gt_cls):
         """
@@ -207,3 +209,15 @@ class OBBValidator(DetectionValidator):
                         f.writelines(lines)
 
         return stats
+
+def val(cfg=DEFAULT_CFG):
+    model = cfg.model or 'yolo8n.pt'
+    source = cfg.source
+    from ultralytics import YOLO
+    args = dict(model=model, source=source)
+    args['data'] = cfg.data
+    YOLO(model).val(**args)
+
+
+if __name__ == '__main__':
+    val()

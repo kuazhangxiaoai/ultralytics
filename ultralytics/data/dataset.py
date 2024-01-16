@@ -67,6 +67,7 @@ class YOLODataset(BaseDataset):
                 iterable=zip(
                     self.im_files,
                     self.label_files,
+                    repeat(self.data['names']),
                     repeat(self.prefix),
                     repeat(self.use_keypoints),
                     repeat(len(self.data["names"])),
@@ -74,12 +75,19 @@ class YOLODataset(BaseDataset):
                     repeat(ndim),
                 ),
             )
+
             pbar = TQDM(results, desc=desc, total=total)
             for im_file, lb, shape, segments, keypoint, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
                 nf += nf_f
                 ne += ne_f
                 nc += nc_f
+                if lb.shape[1] == 9:
+                    bbox_format = "xyxyxyxy"
+                elif lb.shape[1] == 6:
+                    bbox_format = "xywhr"
+                else:
+                    bbox_format = "xywh"
                 if im_file:
                     x["labels"].append(
                         dict(
@@ -90,7 +98,7 @@ class YOLODataset(BaseDataset):
                             segments=segments,
                             keypoints=keypoint,
                             normalized=True,
-                            bbox_format="xywh",
+                            bbox_format=bbox_format,
                         )
                     )
                 if msg:
@@ -157,18 +165,32 @@ class YOLODataset(BaseDataset):
             transforms = v8_transforms(self, self.imgsz, hyp)
         else:
             transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
-        transforms.append(
-            Format(
-                bbox_format="xywh",
-                normalize=True,
-                return_mask=self.use_segments,
-                return_keypoint=self.use_keypoints,
-                return_obb=self.use_obb,
-                batch_idx=True,
-                mask_ratio=hyp.mask_ratio,
-                mask_overlap=hyp.overlap_mask,
+        if self.use_obb:
+            transforms.append(
+                Format(
+                    bbox_format="xywhr",
+                    normalize=True,
+                    return_mask=self.use_segments,
+                    return_keypoint=self.use_keypoints,
+                    return_obb=self.use_obb,
+                    batch_idx=True,
+                    mask_ratio=hyp.mask_ratio,
+                    mask_overlap=hyp.overlap_mask,
+                )
             )
-        )
+        else:
+            transforms.append(
+                Format(
+                    bbox_format="xywh",
+                    normalize=True,
+                    return_mask=self.use_segments,
+                    return_keypoint=self.use_keypoints,
+                    return_obb=self.use_obb,
+                    batch_idx=True,
+                    mask_ratio=hyp.mask_ratio,
+                    mask_overlap=hyp.overlap_mask,
+                )
+            )
         return transforms
 
     def close_mosaic(self, hyp):
@@ -196,7 +218,7 @@ class YOLODataset(BaseDataset):
             segments = np.stack(resample_segments(segments, n=segment_resamples), axis=0)
         else:
             segments = np.zeros((0, segment_resamples, 2), dtype=np.float32)
-        label["instances"] = Instances(bboxes, segments, keypoints, bbox_format=bbox_format, normalized=normalized)
+        label["instances"] = Instances(bboxes, self.use_obb, segments, keypoints, bbox_format=bbox_format, normalized=normalized)
         return label
 
     @staticmethod
