@@ -1041,14 +1041,14 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
         [
             Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic),
             CopyPaste(p=hyp.copy_paste),
-            RandomPerspective(
-                degrees=hyp.degrees,
-                translate=hyp.translate,
-                scale=hyp.scale,
-                shear=hyp.shear,
-                perspective=hyp.perspective,
-                pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz)),
-            ),
+            #RandomPerspective(
+            #    degrees=hyp.degrees,
+            #    translate=hyp.translate,
+            #    scale=hyp.scale,
+            #    shear=hyp.shear,
+            #    perspective=hyp.perspective,
+            #    pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz)),
+            #),
         ]
     )
     flip_idx = dataset.data.get("flip_idx", [])  # for keypoints augmentation
