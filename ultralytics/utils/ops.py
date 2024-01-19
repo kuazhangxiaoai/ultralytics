@@ -171,6 +171,55 @@ def nms_rotated(boxes, scores, threshold=0.45):
     pick = torch.nonzero(ious.max(dim=0)[0] < threshold).squeeze_(-1)
     return sorted_idx[pick]
 
+def rbox2poly(obboxes):
+    """
+    Trans rbox format to poly format.
+    Args:
+        rboxes (array/tensor): (num_gts, [cx cy l s θ]) θ∈[-pi/2, pi/2)
+
+    Returns:
+        polys (array/tensor): (num_gts, [x1 y1 x2 y2 x3 y3 x4 y4])
+    """
+    if isinstance(obboxes, torch.Tensor):
+        center, w, h, theta = obboxes[..., :2], obboxes[..., 2:3], obboxes[..., 3:4], obboxes[..., 4:5]
+        Cos, Sin = torch.cos(theta), torch.sin(theta)
+
+        vector1 = torch.cat(
+            (w/2 * Cos, -w/2 * Sin), dim=-1)
+        vector2 = torch.cat(
+            (-h/2 * Sin, -h/2 * Cos), dim=-1)
+
+        #dx = w / 2
+        #dy = h / 2
+
+        #dx_cos_rot = dx * Cos
+        #dx_sin_rot = dx * Sin * -1
+        #dy_cos_rot = dy * Sin * -1
+        #dy_sin_rot = dy * Cos * -1
+
+        point1 = center + vector1 + vector2
+        point2 = center + vector1 - vector2
+        point3 = center - vector1 - vector2
+        point4 = center - vector1 + vector2
+        order = obboxes.shape[:-1]
+        return torch.cat(
+            (point1, point2, point3, point4), dim=-1).reshape(*order, 8)
+    else:
+        center, w, h, theta = np.split(obboxes, (2, 3, 4), axis=-1)
+        Cos, Sin = np.cos(theta), np.sin(theta)
+
+        vector1 = np.concatenate(
+            [w/2 * Cos, -w/2 * Sin], axis=-1)
+        vector2 = np.concatenate(
+            [-h/2 * Sin, -h/2 * Cos], axis=-1)
+
+        point1 = center + vector1 + vector2
+        point2 = center + vector1 - vector2
+        point3 = center - vector1 - vector2
+        point4 = center - vector1 + vector2
+        order = obboxes.shape[:-1]
+        return np.concatenate(
+            [point1, point2, point3, point4], axis=-1).reshape(*order, 8)
 
 def non_max_suppression(
     prediction,
@@ -662,6 +711,7 @@ def resample_segments(segments, n=1000):
     Returns:
         segments (list): the resampled segments.
     """
+    segments = np.array(segments) if isinstance(segments, list) else segments
     for i, s in enumerate(segments):
         s = np.concatenate((s, s[0:1, :]), axis=0)
         x = np.linspace(0, len(s) - 1, n)

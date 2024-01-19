@@ -17,20 +17,20 @@ test: images/test  # test images (optional) 937 images
 names:
   0: plane
   1: ship
-  2: storage tank
-  3: baseball diamond
-  4: tennis court
-  5: basketball court
-  6: ground track field
+  2: storage-tank
+  3: baseball-diamond
+  4: tennis-court
+  5: basketball-court
+  6: ground-track-field
   7: harbor
   8: bridge
-  9: large vehicle
-  10: small vehicle
+  9: large-vehicle
+  10: small-vehicle
   11: helicopter
   12: roundabout
-  13: soccer ball field
-  14: swimming pool
-  15: container crane
+  13: soccer-ball-field
+  14: swimming-pool
+  15: container-crane
 
 # Download script/URL (optional)
 download: https://github.com/ultralytics/yolov5/releases/download/v1.0/DOTAv1.5.zip

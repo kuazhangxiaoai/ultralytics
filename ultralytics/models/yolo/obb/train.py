@@ -40,3 +40,20 @@ class OBBTrainer(yolo.detect.DetectionTrainer):
         """Return an instance of OBBValidator for validation of YOLO model."""
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
         return yolo.obb.OBBValidator(self.test_loader, save_dir=self.save_dir, args=copy(self.args))
+
+def train(cfg=DEFAULT_CFG, use_python= False):
+    model = cfg.model or 'yolov8n.pt'
+    data = cfg.data or 'coco128.yaml'
+    device = cfg.device if cfg.device is not None else ''
+
+    args = dict(model=model, data=data, device=device)
+    if use_python:
+        from ultralytics import YOLO
+        YOLO(model).train(**args)
+    else:
+        trainer = OBBTrainer(overrides=args)
+        trainer.train()
+
+
+if __name__ == '__main__':
+    train()

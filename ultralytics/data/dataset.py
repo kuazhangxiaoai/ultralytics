@@ -212,7 +212,7 @@ class YOLODataset(BaseDataset):
 
         # NOTE: do NOT resample oriented boxes
         segment_resamples = 100 if self.use_obb else 1000
-        if len(segments) > 0:
+        if len(segments) > 0 and not self.use_obb:
             # list[np.array(1000, 2)] * num_samples
             # (N, 1000, 2)
             segments = np.stack(resample_segments(segments, n=segment_resamples), axis=0)

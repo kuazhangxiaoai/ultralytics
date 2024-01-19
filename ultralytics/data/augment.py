@@ -210,7 +210,7 @@ class Mosaic(BaseMixTransform):
         """Create a 2x2 image mosaic."""
         mosaic_labels = []
         s = self.imgsz
-        yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.border)  # mosaic center x, y
+        yc, xc = (int(random.uniform(-x, 2 * s + x) ) for x in self.border) # mosaic center x, y
         for i in range(4):
             labels_patch = labels if i == 0 else labels["mix_labels"][i - 1]
             # Load image
@@ -229,7 +229,7 @@ class Mosaic(BaseMixTransform):
                 x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(s * 2, yc + h)
                 x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
             elif i == 3:  # bottom right
-                x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2, yc + h)
+                x1a, y1a, x2a, y2a = xc, yc, min(xc + w, s * 2), min(s * 2 , yc + h)
                 x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
 
             img4[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]  # img4[ymin:ymax, xmin:xmax]
@@ -240,6 +240,8 @@ class Mosaic(BaseMixTransform):
             mosaic_labels.append(labels_patch)
         final_labels = self._cat_labels(mosaic_labels)
         final_labels["img"] = img4
+
+
         return final_labels
 
     def _mosaic9(self, labels):
@@ -294,7 +296,15 @@ class Mosaic(BaseMixTransform):
     def _update_labels(labels, padw, padh):
         """Update labels."""
         nh, nw = labels["img"].shape[:2]
-        labels["instances"].convert_bbox(format="xyxy")
+
+        if labels["instances"].bboxes.shape[-1] == 8:
+            fmt = "xyxyxyxy"
+        elif labels["instances"].bboxes.shape[-1] == 4:
+            fmt = "xyxy"
+        else:
+            raise "The format of bbox is invalid."
+
+        labels["instances"].convert_bbox(format=fmt)
         labels["instances"].denormalize(nw, nh)
         labels["instances"].add_padding(padw, padh)
         return labels
@@ -395,12 +405,13 @@ class RandomPerspective:
             M (ndarray): Transformation matrix.
             s (float): Scale factor.
         """
-
+        height = img.shape[0] + border[0] * 2  # shape(h,w,c)
+        width = img.shape[1] + border[1] * 2
         # Center
         C = np.eye(3, dtype=np.float32)
 
-        C[0, 2] = -img.shape[1] / 2  # x translation (pixels)
-        C[1, 2] = -img.shape[0] / 2  # y translation (pixels)
+        #C[0, 2] = -img.shape[1] / 2  # x translation (pixels)
+        #C[1, 2] = -img.shape[0] / 2  # y translation (pixels)
 
         # Perspective
         P = np.eye(3, dtype=np.float32)
@@ -413,7 +424,7 @@ class RandomPerspective:
         # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
         s = random.uniform(1 - self.scale, 1 + self.scale)
         # s = 2 ** random.uniform(-scale, scale)
-        R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
+        R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=0.5)
 
         # Shear
         S = np.eye(3, dtype=np.float32)
@@ -422,18 +433,43 @@ class RandomPerspective:
 
         # Translation
         T = np.eye(3, dtype=np.float32)
-        T[0, 2] = random.uniform(0.5 - self.translate, 0.5 + self.translate) * self.size[0]  # x translation (pixels)
-        T[1, 2] = random.uniform(0.5 - self.translate, 0.5 + self.translate) * self.size[1]  # y translation (pixels)
+        #T[0, 2] = random.uniform(0.5 - self.translate, 0.5 + self.translate) * width  # x translation (pixels)
+        #T[1, 2] = random.uniform(0.5 - self.translate, 0.5 + self.translate) * height  # y translation (pixels)
 
         # Combined rotation matrix
         M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
         # Affine image
         if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
             if self.perspective:
-                img = cv2.warpPerspective(img, M, dsize=self.size, borderValue=(114, 114, 114))
+                img = cv2.warpPerspective(img, M, dsize=(width, height), borderValue=(114, 114, 114))
             else:  # affine
-                img = cv2.warpAffine(img, M[:2], dsize=self.size, borderValue=(114, 114, 114))
+                img = cv2.warpAffine(img, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
         return img, M, s
+
+    def apply_rbboxes(self, rbboxes, M):
+        """
+        Apply affine to rbboxes only.
+
+        Args:
+            bboxes (ndarray): list of rbboxes, xyxyxyxy format, with shape (num_bboxes, 8).
+            M (ndarray): affine matrix.
+
+            Returns:
+            new_bboxes (ndarray): rbboxes after affine, [num_bboxes, 8].
+        """
+        n = len(rbboxes)
+        if n == 0:
+            return rbboxes
+
+        xy = np.ones((n * 4, 3), dtype=rbboxes.dtype)
+        xy[:, :2] = rbboxes.reshape(n * 4, 2)  # x1y1, x2y2, x3y3, x4y4
+        xy = xy @ M.T  # transform
+        xy = (xy[:, :2] / xy[:, 2:3] if self.perspective else xy[:, :2]).reshape(n, 8)  # perspective rescale or affine
+
+        # Create new boxes
+        x = xy[:, [0, 2, 4, 6]]
+        y = xy[:, [1, 3, 5, 7]]
+        return xy
 
     def apply_bboxes(self, bboxes, M):
         """
@@ -510,6 +546,25 @@ class RandomPerspective:
         visible[out_mask] = 0
         return np.concatenate([xy, visible], axis=-1).reshape(n, nkpt, 3)
 
+    def poly_filter(self, polys, h, w):
+        """
+        Filter the poly labels which is out of the image.
+        Args:
+            polys (array): (num, 8)
+
+        Return：
+            keep_masks (array): (num)
+        """
+        x = polys[:, 0::2]  # (num, 4)
+        y = polys[:, 1::2]
+        x_max = np.amax(x, axis=1)  # (num)
+        x_min = np.amin(x, axis=1)
+        y_max = np.amax(y, axis=1)
+        y_min = np.amin(y, axis=1)
+        x_ctr, y_ctr = (x_max + x_min) / 2.0, (y_max + y_min) / 2.0  # (num)
+        keep_masks = (x_ctr > 0) & (x_ctr < w) & (y_ctr > 0) & (y_ctr < h)
+        return keep_masks
+
     def __call__(self, labels):
         """
         Affine images and targets.
@@ -525,7 +580,7 @@ class RandomPerspective:
         cls = labels["cls"]
         instances = labels.pop("instances")
         # Make sure the coord formats are right
-        instances.convert_bbox(format="xyxy")
+        instances.convert_bbox(format="xyxy") if not instances.is_obb else instances.convert_bbox(format="xyxyxyxy")
         instances.denormalize(*img.shape[:2][::-1])
 
         border = labels.pop("mosaic_border", self.border)
@@ -534,7 +589,7 @@ class RandomPerspective:
         # Scale for func:`box_candidates`
         img, M, scale = self.affine_transform(img, border)
 
-        bboxes = self.apply_bboxes(instances.bboxes, M)
+        bboxes = self.apply_bboxes(instances.bboxes, M) if not instances.is_obb else self.apply_rbboxes(instances.bboxes, M)
 
         segments = instances.segments
         keypoints = instances.keypoints
@@ -544,16 +599,22 @@ class RandomPerspective:
 
         if keypoints is not None:
             keypoints = self.apply_keypoints(keypoints, M)
-        new_instances = Instances(bboxes, segments, keypoints, bbox_format="xyxy", normalized=False)
+        if not instances.is_obb:
+            new_instances = Instances(bboxes,False, segments, keypoints, bbox_format="xyxy", normalized=False)
+        else:
+            new_instances = Instances(bboxes,True, segments, keypoints, bbox_format="xyxyxyxy", normalized=False)
         # Clip
-        new_instances.clip(*self.size)
+        #new_instances.clip(*self.size)
 
         # Filter instances
-        instances.scale(scale_w=scale, scale_h=scale, bbox_only=True)
+        #instances.scale(scale_w=scale, scale_h=scale, bbox_only=True)
         # Make the bboxes have the same scale with new_bboxes
-        i = self.box_candidates(
-            box1=instances.bboxes.T, box2=new_instances.bboxes.T, area_thr=0.01 if len(segments) else 0.10
-        )
+        if instances.is_obb:
+            i = self.poly_filter(new_instances.bboxes,h=img.shape[0], w=img.shape[1])
+        else:
+            i = self.box_candidates(
+                box1=instances.bboxes.T, box2=new_instances.bboxes.T, area_thr=0.01 if len(segments) else 0.10
+            )
         labels["instances"] = new_instances[i]
         labels["cls"] = cls[i]
         labels["img"] = img
@@ -662,7 +723,7 @@ class RandomFlip:
         """
         img = labels["img"]
         instances = labels.pop("instances")
-        instances.convert_bbox(format="xywh")
+        instances.convert_bbox(format="xywh") if not instances.is_obb else instances.convert_bbox(format="xyxyxyxy")
         h, w = img.shape[:2]
         h = 1 if instances.normalized else h
         w = 1 if instances.normalized else w
@@ -791,7 +852,7 @@ class CopyPaste:
         cls = labels["cls"]
         h, w = im.shape[:2]
         instances = labels.pop("instances")
-        instances.convert_bbox(format="xyxy")
+        instances.convert_bbox(format="xyxy") if not instances.is_obb else instances.convert_bbox(format="xyxyxyxy")
         instances.denormalize(w, h)
         if self.p and len(instances.segments):
             n = len(instances)
@@ -862,7 +923,7 @@ class Albumentations:
         im = labels["img"]
         cls = labels["cls"]
         if len(cls):
-            labels["instances"].convert_bbox("xywh")
+            #labels["instances"].convert_bbox("xywh")
             labels["instances"].normalize(*im.shape[:2][::-1])
             bboxes = labels["instances"].bboxes
             # TODO: add supports of segments and keypoints

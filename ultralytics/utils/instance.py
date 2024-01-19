@@ -8,7 +8,7 @@ from typing import List
 import numpy as np
 from shapely.geometry import Polygon
 from .ops import ltwh2xywh, ltwh2xyxy, xywh2ltwh, xywh2xyxy, xyxy2ltwh, xyxy2xywh, xyxyxyxy2xywhr, xywhr2xyxyxyxy, \
-    poly2rbox
+    poly2rbox,rbox2poly
 
 
 def _ntuple(n):
@@ -29,7 +29,7 @@ to_4tuple = _ntuple(4)
 # `ltwh` means left top and width, height(COCO format)
 _formats = ["xyxy", "xywh", "ltwh", "xyxyxyxy", "xywhr"]
 
-__all__ = ("Bboxes",)  # tuple or list
+__all__ = ("Bboxes", "Rboxes")  # tuple or list
 
 
 class Bboxes:
@@ -184,7 +184,7 @@ class Rboxes(Bboxes):
             area = [self.bboxes[i][2] * self.bboxes[i][3] for i in range(len(self.bboxes))]
         else:
             area = [Polygon(self.bboxes[i].reshape(-1,2)).area for i in range(len(self.bboxes))]
-        return area
+        return np.array(area)
 
     def convert(self, format):
         """Converts bounding box format from one type to another."""
@@ -194,7 +194,7 @@ class Rboxes(Bboxes):
         elif self.format == "xyxyxyxy" and format == "xywhr":
             func = poly2rbox
         elif self.format == "xywhr" and format == "xyxyxyxy":
-            func = xywhr2xyxyxyxy
+            func = rbox2poly
 
         self.bboxes = func(self.bboxes)
         self.format = format
@@ -337,6 +337,7 @@ class Instances:
         self.normalized = normalized
         self.segments = segments
         self.is_obb = use_obb
+        assert use_obb in [True, False]
 
     def convert_bbox(self, format):
         """Convert bounding box format."""
@@ -428,8 +429,17 @@ class Instances:
             y2 = self.bboxes[:, 3].copy()
             self.bboxes[:, 1] = h - y2
             self.bboxes[:, 3] = h - y1
-        else:
+        elif self._bboxes.format == "xyxyxyxy":
             self.bboxes[:, 1] = h - self.bboxes[:, 1]
+            self.bboxes[:, 3] = h - self.bboxes[:, 3]
+            self.bboxes[:, 5] = h - self.bboxes[:, 5]
+            self.bboxes[:, 7] = h - self.bboxes[:, 7]
+        elif self._bboxes.format == "xywh" or "ltwh":
+            self.bboxes[:, 1] = h - self.bboxes[:, 1]
+        elif self._bboxes.format == "xywhr":
+            self.bboxes[:, 1] = h - self.bboxes[:, 1]
+            self.bboxes[:, -1] = -1.0 * self.bboxes[:, -1]
+
         self.segments[..., 1] = h - self.segments[..., 1]
         if self.keypoints is not None:
             self.keypoints[..., 1] = h - self.keypoints[..., 1]
@@ -441,8 +451,16 @@ class Instances:
             x2 = self.bboxes[:, 2].copy()
             self.bboxes[:, 0] = w - x2
             self.bboxes[:, 2] = w - x1
-        else:
+        elif self._bboxes.format == "xyxyxyxy":
             self.bboxes[:, 0] = w - self.bboxes[:, 0]
+            self.bboxes[:, 2] = w - self.bboxes[:, 2]
+            self.bboxes[:, 4] = w - self.bboxes[:, 4]
+            self.bboxes[:, 6] = w - self.bboxes[:, 6]
+        elif self._bboxes.format == "xywh" or "ltwh":
+            self.bboxes[:, 0] = w - self.bboxes[:, 0]
+        elif self._bboxes.format == "xywhr":
+            self.bboxes[:, 0] = w - self.bboxes[:, 0]
+            self.bboxes[:, -1] = np.pi - self.bboxes[:, -1]
         self.segments[..., 0] = w - self.segments[..., 0]
         if self.keypoints is not None:
             self.keypoints[..., 0] = w - self.keypoints[..., 0]
@@ -450,13 +468,23 @@ class Instances:
     def clip(self, w, h):
         """Clips bounding boxes, segments, and keypoints values to stay within image boundaries."""
         ori_format = self._bboxes.format
-        self.convert_bbox(format="xyxy")
-        self.bboxes[:, [0, 2]] = self.bboxes[:, [0, 2]].clip(0, w)
-        self.bboxes[:, [1, 3]] = self.bboxes[:, [1, 3]].clip(0, h)
-        if ori_format != "xyxy":
+        if not self.is_obb:
+            self.convert_bbox(format="xyxy")
+            self.bboxes[:, [0, 2]] = self.bboxes[:, [0, 2]].clip(0, w)
+            self.bboxes[:, [1, 3]] = self.bboxes[:, [1, 3]].clip(0, h)
+        else:
+            self.convert_bbox(format="xyxyxyxy")
+            self.bboxes[:, [0, 2, 4, 6]] = self.bboxes[:, [0, 2, 4, 6]].clip(0, w)
+            self.bboxes[:, [1, 3, 5, 7]] = self.bboxes[:, [1, 3, 5, 7]].clip(0, h)
+
+        if ori_format != "xyxy" and (not self.is_obb):
             self.convert_bbox(format=ori_format)
-        self.segments[..., 0] = self.segments[..., 0].clip(0, w)
-        self.segments[..., 1] = self.segments[..., 1].clip(0, h)
+        if ori_format != "xyxyxyxy" and self.is_obb:
+            self.convert_bbox(format=ori_format)
+
+        if self.keypoints is not None:
+            self.segments[..., 0] = self.segments[..., 0].clip(0, w)
+            self.segments[..., 1] = self.segments[..., 1].clip(0, h)
         if self.keypoints is not None:
             self.keypoints[..., 0] = self.keypoints[..., 0].clip(0, w)
             self.keypoints[..., 1] = self.keypoints[..., 1].clip(0, h)
@@ -478,7 +506,7 @@ class Instances:
 
     def update(self, bboxes, segments=None, keypoints=None):
         """Updates instance variables."""
-        self._bboxes = Bboxes(bboxes, format=self._bboxes.format)
+        self._bboxes = Bboxes(bboxes, format=self._bboxes.format) if not self.is_obb else Rboxes(bboxes, format=self._bboxes.format)
         if segments is not None:
             self.segments = segments
         if keypoints is not None:
@@ -513,7 +541,7 @@ class Instances:
 
         if len(instances_list) == 1:
             return instances_list[0]
-
+        use_obb = instances_list[0].is_obb
         use_keypoint = instances_list[0].keypoints is not None
         bbox_format = instances_list[0]._bboxes.format
         normalized = instances_list[0].normalized
@@ -521,7 +549,7 @@ class Instances:
         cat_boxes = np.concatenate([ins.bboxes for ins in instances_list], axis=axis)
         cat_segments = np.concatenate([b.segments for b in instances_list], axis=axis)
         cat_keypoints = np.concatenate([b.keypoints for b in instances_list], axis=axis) if use_keypoint else None
-        return cls(cat_boxes, cat_segments, cat_keypoints, bbox_format, normalized)
+        return cls(cat_boxes,use_obb, cat_segments, cat_keypoints, bbox_format, normalized)
 
     @property
     def bboxes(self):

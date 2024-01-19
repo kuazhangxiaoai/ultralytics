@@ -2,22 +2,22 @@
 # Default training settings and hyperparameters for medium-augmentation COCO training
 
 task: obb  # (str) YOLO task, i.e. detect, segment, classify, pose
-mode: val  # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark
+mode: train  # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark
 
 # Train settings -------------------------------------------------------------------------------------------------------
-model: D:/workspace/python_workspace/ultralytics/weights/yolov8n-obb.pt # (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
-data:  D:/workspace/python_workspace/ultralytics/ultralytics/cfg/datasets/DOTAv1.yaml # (str, optional) path to data file, i.e. coco128.yaml
+model: E:/workspace/python_workspace/yolov8-obb/ultralytics/cfg/models/v8/yolov8-obb.yaml # (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
+data:  E:/workspace/python_workspace/yolov8-obb/ultralytics/cfg/datasets/DOTAv1.yaml # (str, optional) path to data file, i.e. coco128.yaml
 epochs: 100  # (int) number of epochs to train for
 time:  # (float, optional) number of hours to train for, overrides epochs if supplied
 patience: 50  # (int) epochs to wait for no observable improvement for early stopping of training
-batch: 1  # (int) number of images per batch (-1 for AutoBatch)
+batch: 4  # (int) number of images per batch (-1 for AutoBatch)
 imgsz: 1024  # (int | list) input images size as int for train and val modes, or list[w,h] for predict and export modes
 save: True  # (bool) save train checkpoints and predict results
 save_period: -1 # (int) Save checkpoint every x epochs (disabled if < 1)
 cache: False  # (bool) True/ram, disk or False. Use cache for data loading
 device:  # (int | str | list, optional) device to run on, i.e. cuda device=0 or device=0,1,2,3 or device=cpu
-workers: 8  # (int) number of worker threads for data loading (per RANK if DDP)
-project:  D:/workspace/python_workspace/ultralytics/runs # (str, optional) project name
+workers: 0  # (int) number of worker threads for data loading (per RANK if DDP)
+project:  E:/workspace/python_workspace/yolov8-obb/runs # (str, optional) project name
 name:  # (str, optional) experiment name, results saved to 'project/name' directory
 exist_ok: False  # (bool) whether to overwrite existing experiment
 pretrained: True  # (bool | str) whether to use a pretrained model (bool) or a model to load weights from (str)
@@ -47,7 +47,7 @@ split: val  # (str) dataset split to use for validation, i.e. 'val', 'test' or '
 save_json: False  # (bool) save results to JSON file
 save_hybrid: False  # (bool) save hybrid version of labels (labels + additional predictions)
 conf: 0.25 # (float, optional) object confidence threshold for detection (default 0.25 predict, 0.001 val)
-iou: 0.7  # (float) intersection over union (IoU) threshold for NMS
+iou: 0.5  # (float) intersection over union (IoU) threshold for NMS
 max_det: 300  # (int) maximum number of detections per image
 half: False  # (bool) use half precision (FP16)
 dnn: False  # (bool) use OpenCV DNN for ONNX inference
@@ -106,12 +106,12 @@ hsv_h: 0.015  # (float) image HSV-Hue augmentation (fraction)
 hsv_s: 0.7  # (float) image HSV-Saturation augmentation (fraction)
 hsv_v: 0.4  # (float) image HSV-Value augmentation (fraction)
 degrees: 0.0  # (float) image rotation (+/- deg)
-translate: 0.1  # (float) image translation (+/- fraction)
-scale: 0.5  # (float) image scale (+/- gain)
+translate: 0.0  # (float) image translation (+/- fraction)
+scale: 0.0  # (float) image scale (+/- gain)
 shear: 0.0  # (float) image shear (+/- deg)
 perspective: 0.0  # (float) image perspective (+/- fraction), range 0-0.001
-flipud: 0.0  # (float) image flip up-down (probability)
-fliplr: 0.5  # (float) image flip left-right (probability)
+flipud: 0.325  # (float) image flip up-down (probability)
+fliplr: 0.325  # (float) image flip left-right (probability)
 mosaic: 1.0  # (float) image mosaic (probability)
 mixup: 0.0  # (float) image mixup (probability)
 copy_paste: 0.0  # (float) segment copy-paste (probability)
